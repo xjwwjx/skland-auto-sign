@@ -1,0 +1,8 @@
+{
+  "games": [],
+  "log_to_file": true,
+  "_comment": {
+    "games": "留空=全部游戏签到，或指定 ['arknights', 'endfield']",
+    "log_to_file": "是否写入 sign_log.txt"
+  }
+}
