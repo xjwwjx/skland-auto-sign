@@ -46,6 +46,30 @@ CHECKIN_MAP = {"arknights": "1", "endfield": "3"}
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sign_log.txt")
 
 _CACHED_DID = None  # 缓存随机 dId
+_TIME_OFFSET = 0   # 本地与服务器时间偏差（秒），启动时自动校准
+
+
+def sync_time_offset():
+    """校准本地时间与森空岛服务器的时间偏差"""
+    global _TIME_OFFSET
+    try:
+        from email.utils import parsedate_to_datetime
+        resp = requests.get(SK_BASE, timeout=TIMEOUT)
+        date_str = resp.headers.get("Date", "")
+        if date_str:
+            server_dt = parsedate_to_datetime(date_str)
+            server_ts = int(server_dt.timestamp())
+            local_ts = int(time.time())
+            _TIME_OFFSET = server_ts - local_ts
+            if abs(_TIME_OFFSET) > 5:
+                log(f"  时间校准: 本地与服务器偏差 {_TIME_OFFSET} 秒，已自动修正", False)
+    except Exception as e:
+        log(f"  时间校准失败: {e}", False)
+
+
+def now_ts():
+    """返回校准后的秒级时间戳"""
+    return str(int(time.time()) + _TIME_OFFSET)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -118,7 +142,7 @@ def compute_sign(sign_token, path, body_str, profile="default"):
     签名: sign = MD5(HMAC_SHA256(sign_token, path + body + timestamp + headerCA))
     不同游戏通过 profile 切换签名参数
     """
-    t = str(int(time.time()) - 2)
+    t = now_ts()
     p = SIGN_PROFILES[profile]
     did = get_did() if p["dId"] is None else p["dId"]
 
@@ -164,7 +188,21 @@ def signed_request(cred, sign_token, url, method="POST", body=None,
     if method.upper() == "POST":
         kwargs["data"] = body_bytes
 
-    return req_fn(url, **kwargs).json()
+    if "--debug" in sys.argv:
+        safe_h = {k: (v[:6] + "..." + v[-3:] if k in ("cred", "sign") else v)
+                  for k, v in headers.items()}
+        print(f"[DEBUG] URL: {url}")
+        print(f"[DEBUG] Method: {method}")
+        print(f"[DEBUG] Headers: {json.dumps(safe_h, ensure_ascii=False)}")
+        print(f"[DEBUG] Body: {body_str or '(empty)'}")
+        sign_msg = path + body_str + ca["timestamp"] + json.dumps(ca, separators=(",", ":"))
+        print(f"[DEBUG] Sign message: {sign_msg}")
+
+    resp = req_fn(url, **kwargs)
+    if "--debug" in sys.argv:
+        print(f"[DEBUG] Status: {resp.status_code}")
+        print(f"[DEBUG] Response: {resp.text[:600]}")
+    return resp.json()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -313,6 +351,7 @@ def main():
         sys.exit(1)
 
     log(f"共 {len(tokens)} 个账号，开始签到...\n", to_file)
+    sync_time_offset()
 
     for idx, token in enumerate(tokens, 1):
         mask = token[:8] + "****" + token[-4:] if len(token) > 12 else "****"
