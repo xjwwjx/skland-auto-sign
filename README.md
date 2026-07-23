@@ -61,34 +61,107 @@ schtasks /Delete /TN SklandAutoSign /F
 
 #### Android (Termux)
 
-**前置准备**：从 [F-Droid](https://f-droid.org/packages/com.termux/) 安装 Termux（不要用 Google Play 版，已过时）。
+> **安卓手机用户请按以下步骤操作**，从安装 Termux 到自动签到，完整流程如下。
+
+##### 第 1 步：安装 Termux 及配套 APP
+
+从 [F-Droid](https://f-droid.org/packages/com.termux/) 安装以下三个 APP（**不要用 Google Play 版，已过时**）：
+
+| APP | 用途 | 下载地址 |
+|-----|------|---------|
+| **Termux** | 提供 Linux 终端环境，运行 Python 脚本 | [F-Droid](https://f-droid.org/packages/com.termux/) |
+| **Termux:API** | 提供 termux-wake-lock 等系统接口 | [F-Droid](https://f-droid.org/packages/com.termux.api/) |
+| **Termux:Boot** | 开机自启 cron 服务 | [F-Droid](https://f-droid.org/packages/com.termux.boot/) |
+
+安装后，**打开 Termux:API 和 Termux:Boot 各一次**（打开即可关闭），让系统授予必要权限。
+
+##### 第 2 步：在 Termux 中安装脚本
+
+打开 Termux APP，依次输入以下命令：
 
 ```bash
-# 1. 安装 git 并克隆仓库
+# 1. 安装 git
 pkg install git -y
+
+# 2. 克隆仓库到手机
 git clone https://github.com/xjwwjx/skland-auto-sign.git ~/skland-auto-sign
 
-# 2. 运行一键安装脚本
+# 3. 进入项目目录
 cd ~/skland-auto-sign
+
+# 4. 运行一键安装脚本（自动安装 Python、依赖、cron 定时任务）
 bash setup_android.sh
 ```
 
 安装脚本会自动完成：
-- 安装 Python、requests、cronie、termux-api
-- 配置每天 15:00 的 cron 定时任务
-- 设置 termux-wake-lock 防止手机休眠杀进程
-- 配置 Termux:Boot 开机自启
+- ✅ 安装 Python、requests、cronie、termux-api
+- ✅ 配置每天 **15:00** 的 cron 定时任务
+- ✅ 设置 `termux-wake-lock` 防止手机休眠杀进程
+- ✅ 配置 Termux:Boot 开机自启 cron 服务
+- ✅ 创建 `creds.txt` 配置文件（如不存在）
 
-安装完成后编辑 Token：
+看到 `安装完成！` 提示即表示环境配置成功。
+
+##### 第 3 步：填入 Token
+
+安装脚本会自动创建 `creds.txt` 文件，你需要编辑它填入自己的鹰角通行证 Token：
 
 ```bash
+# 用 nano 编辑器打开配置文件
 nano ~/skland-auto-sign/creds.txt
 ```
 
-**Android 常用命令**：
+在文件中填入你的 Token（每行一个，`#` 开头为注释）：
+
+```
+# 森空岛自动签到 — Token 配置
+你的token值粘贴在这里
+```
+
+编辑完成后按 `Ctrl+O` 保存，`Ctrl+X` 退出 nano。
+
+> **Token 获取方式**：打开森空岛 App → 我的 → 设置 → 复制鹰角通行证 Token
+
+##### 第 4 步：手动测试签到
+
+确认 Token 填好后，先手动跑一次验证是否正常：
 
 ```bash
-# 手动测试签到
+cd ~/skland-auto-sign && python skland_sign.py
+```
+
+看到 `签到成功` 即表示配置正确，可以进入下一步。如果报错，检查 Token 是否正确、网络是否通畅。
+
+##### 第 5 步：设置系统后台保活
+
+这一步非常关键，否则 Termux 会被安卓系统杀掉，定时任务无法执行：
+
+1. **关闭电池优化**：系统设置 → 应用管理 → Termux → 电池/耗电管理 → 选择「不限制」或「无限制」
+2. **锁定后台**：在最近任务列表中下拉锁定 Termux（或长按加锁图标）
+3. **确认唤醒锁生效**：Termux 通知栏应显示 `ACQUIRE WAKELOCK`
+4. **确认 cron 运行**：执行 `pgrep crond` 应输出进程号
+
+##### 第 6 步：验证自动签到
+
+等待到定时任务触发时间（默认 15:00），或手动验证 cron 是否正常：
+
+```bash
+# 查看 cron 定时任务是否已配置
+crontab -l
+
+# 查看 cron 服务是否在运行
+pgrep crond
+
+# 签到执行后查看日志
+cat ~/skland-auto-sign/sign_log.txt
+```
+
+日志中出现签到记录即表示自动签到已正常运行。
+
+##### Android 常用管理命令
+
+```bash
+# 手动触发签到
 cd ~/skland-auto-sign && python skland_sign.py
 
 # 查看签到日志
@@ -97,25 +170,29 @@ cat ~/skland-auto-sign/sign_log.txt
 # 查看定时任务
 crontab -l
 
-# 编辑定时任务时间
+# 修改签到时间（例如改为每天 8:00）
 crontab -e
+# 将 "0 15 * * *" 改为 "0 8 * * *"
 
 # 重启 cron 服务
 pkill crond && crond
 
-# 删除定时任务
+# 重新设置唤醒锁
+termux-wake-lock
+
+# 删除定时任务（卸载用）
 crontab -l | grep -v skland-auto-sign | crontab -
 ```
 
-**Android 注意事项**：
+##### Android 常见问题
 
-| 事项 | 说明 |
-|------|------|
-| **电池优化** | 在系统设置中关闭 Termux 的电池优化，防止后台被杀 |
-| **Termux:Boot** | 从 F-Droid 安装 Termux:Boot，打开一次即可实现开机自启 cron |
-| **Termux:API** | 从 F-Droid 安装 Termux:API APP，配合 `termux-api` 包使用 |
-| **保持后台** | 下拉通知栏锁定 Termux 后台，或加入电池白名单 |
-| **F-Droid 版** | 务必使用 F-Droid 版 Termux，Google Play 版已停止更新 |
+| 问题 | 解决方案 |
+|------|---------|
+| **Termux 总是被杀** | 关闭电池优化 → 锁定后台 → 确认 wake-lock 生效 → 安装 Termux:Boot 开机自启 |
+| **cron 到时间没执行** | 检查 `pgrep crond` 是否有输出；检查 `crontab -l` 是否有任务；检查 `run_sign.sh` 是否存在 |
+| **签到报网络错误** | 检查手机网络；Termux 内执行 `curl -sI https://zonai.skland.com` 测试连通性 |
+| **时间偏差导致签名失败** | 脚本已内置时间校准，确保手机系统时间准确即可 |
+| **Google Play 版 Termux 报错** | 卸载后从 F-Droid 重新安装，Google Play 版已停止更新 |
 
 #### Linux / macOS
 
