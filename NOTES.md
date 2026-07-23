@@ -121,6 +121,28 @@ creds_path = os.path.join(script_dir, "creds.txt")
 
 `python.exe` 运行时会弹出控制台窗口，用 `pythonw.exe` 则不会。但脚本中额外加了 `ctypes` 调用 `ShowWindow` 隐藏窗口作为双保险。
 
+### ctypes 跨平台适配
+
+初版脚本在顶部无条件 `import ctypes`，这在 Windows 上没问题，但在 Android/Termux 和其他非 Windows 平台上会导致 `ModuleNotFoundError`。
+
+跨平台修复：将 `import ctypes` 移到 `__main__` 块中，并用 `IS_WINDOWS` 条件包裹：
+
+```python
+# 平台检测
+IS_WINDOWS = os.name == "nt"
+
+if __name__ == "__main__":
+    if IS_WINDOWS and os.path.basename(sys.executable).lower() == "python.exe":
+        try:
+            import ctypes
+            ctypes.windll.user32.ShowWindow(
+                ctypes.windll.kernel32.GetConsoleWindow(), 0
+            )
+        except Exception:
+            pass
+    main()
+```
+
 ### ctypes 导入遗漏
 
 脚本使用了 `ctypes.windll.user32.ShowWindow` 但最初忘记 `import ctypes`。因为被 try/except 包裹，错误被静默吞掉，导致排查困难。
@@ -197,3 +219,67 @@ log(f"账号 ({mask})")
 3. 如果 API 格式与现有不同，新增对应的签到函数
 4. 在 `process_game()` 中添加分支逻辑
 5. 在 `CHECKIN_MAP` 中添加登岛检票的 gameId 映射
+
+---
+
+## 8. Android (Termux) 跨平台适配经验
+
+### 为什么选择 Termux
+
+在 Android 上运行 Python 脚本有几种方案：
+
+| 方案 | 优点 | 缺点 |
+|------|------|------|
+| **Termux** | 完整 Linux 环境，支持 cron、pip，接近 PC 体验 | 需要安装额外 APP，需配置后台保活 |
+| Pydroid 3 | 图形界面，上手简单 | 不支持 cron，自动化能力弱 |
+| QPython | 轻量 | 功能受限，社区不活跃 |
+| 原生 APK | 最友好的用户体验 | 开发成本极高，需 Android SDK + Java/Kotlin |
+
+Termux 是最务实的选择：保留了 Python 代码的原始形态，改动最小，且支持完整的定时任务。
+
+### Termux 环境关键点
+
+1. **Python 安装**：`pkg install python python-pip`，Termux 自带的 Python 3 完全兼容。
+
+2. **cron 定时任务**：Termux 通过 `cronie` 包提供 cron 功能。安装后需手动启动 `crond`，不像 Linux 发行版默认自启。
+
+3. **后台保活**：Android 系统会积极清理后台进程。三层保活策略：
+   - `termux-wake-lock`：阻止 CPU 休眠
+   - 电池白名单：系统设置中关闭 Termux 的电池优化
+   - Termux:Boot：开机自启 cron 服务
+
+4. **F-Droid vs Google Play**：Google Play 版 Termux 已停止更新，API level 过低导致很多包无法安装。必须使用 F-Droid 版本。
+
+5. **路径差异**：Termux 的 home 目录是 `/data/data/com.termux/files/home/`（即 `$HOME`），脚本中所有路径基于 `__file__` 构建，天然兼容。
+
+6. **环境变量检测**：通过 `TERMUX_VERSION` 环境变量检测是否在 Termux 中运行：
+   ```python
+   IS_TERMUX = "TERMUX_VERSION" in os.environ
+   ```
+
+### setup_android.sh 设计
+
+安装脚本的核心流程：
+
+```
+检测 Termux 环境
+  → 安装 Python + pip + requests + cronie + termux-api
+  → 创建 creds.txt（从 example 复制）
+  → 生成 run_sign.sh（cron 执行入口）
+  → 配置 crontab（每天 15:00）
+  → 启动 crond
+  → 设置 termux-wake-lock
+  → 配置 Termux:Boot 开机自启
+```
+
+关键设计决策：
+
+- **run_sign.sh 中间层**：不直接在 crontab 里写 Python 命令，而是通过 shell 脚本包装。因为 cron 环境的 PATH 和 HOME 可能不完整，需要在脚本中显式设置环境变量。
+
+- **幂等性**：脚本可重复执行，不会创建重复的 cron 任务（通过 `grep` 检查）。
+
+- **安装目录**：默认 `$HOME/skland-auto-sign`，如果从克隆目录运行则使用当前目录。
+
+### 时间校准在 Android 上的重要性
+
+Android 手机的时间可能不准确（特别是没有开启自动同步的设备），而森空岛服务器要求时间偏差 <30s。脚本的 `sync_time_offset()` 函数从响应头 `Date` 字段获取服务器时间并自动校准，这在 Android 上尤为重要。

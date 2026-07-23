@@ -5,6 +5,8 @@
 
 签名流程: path + body/query + timestamp + headerCA_json → HMAC-SHA256 → MD5
 参考: https://github.com/bwmgd/skyland-auto-sign
+
+跨平台支持: Windows / Android (Termux) / Linux / macOS
 """
 
 import requests
@@ -16,9 +18,14 @@ import hmac
 import time
 import uuid
 import base64
-import ctypes
+import platform
 from urllib.parse import urlparse
 from datetime import datetime
+
+# 平台检测
+IS_WINDOWS = os.name == "nt"
+IS_ANDROID = "ANDROID_ROOT" in os.environ or "TERMUX_VERSION" in os.environ
+IS_TERMUX = "TERMUX_VERSION" in os.environ
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -345,6 +352,14 @@ def main():
     to_file = config.get("log_to_file", True) and "--nolog" not in sys.argv
     game_filter = set(config.get("games", []))  # 空=全部
 
+    # 显示运行平台信息
+    if IS_TERMUX:
+        log(f"运行环境: Android/Termux {os.environ.get('TERMUX_VERSION', '')}", to_file)
+    elif IS_WINDOWS:
+        log(f"运行环境: Windows {platform.release()}", to_file)
+    else:
+        log(f"运行环境: {platform.system()} {platform.release()}", to_file)
+
     tokens = load_tokens()
     if not tokens:
         log("未找到 token，请在 creds.txt 填入", to_file)
@@ -388,9 +403,10 @@ def main():
 
 
 if __name__ == "__main__":
-    # 静默运行: 用 python.exe 启动时隐藏控制台窗口
-    if os.path.basename(sys.executable).lower() == "python.exe":
+    # Windows 静默运行: 用 python.exe 启动时隐藏控制台窗口
+    if IS_WINDOWS and os.path.basename(sys.executable).lower() == "python.exe":
         try:
+            import ctypes
             ctypes.windll.user32.ShowWindow(
                 ctypes.windll.kernel32.GetConsoleWindow(), 0
             )

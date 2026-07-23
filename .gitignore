@@ -18,6 +18,9 @@ sign_log.txt
 Thumbs.db
 .DS_Store
 
+# Android (Termux) 自动生成文件
+run_sign.sh
+
 # WorkBuddy 工作目录
 .workbuddy/
 .codebuddy/
