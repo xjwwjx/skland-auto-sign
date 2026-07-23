@@ -17,6 +17,33 @@
 
 ### 1. 获取 Token
 
+有两种方式获取鹰角通行证 Token：
+
+#### 方式一：网页端获取（推荐）
+
+1. 在浏览器中打开 [https://www.skland.com](https://www.skland.com)，用鹰角通行证账号登录
+2. **登录后**，在同一个浏览器中访问以下链接：
+
+   👉 [https://web-api.skland.com/account/info/hg](https://web-api.skland.com/account/info/hg)
+
+3. 页面会返回一段 JSON，格式如下：
+
+   ```json
+   {
+     "code": 0,
+     "data": {
+       "content": "这里就是你的Token"
+     },
+     "msg": "接口会返回您的鹰角网络通行证账号的登录凭证..."
+   }
+   ```
+
+4. 复制 `data.content` 字段的值，即为你的 Token
+
+> ⚠️ 必须先登录森空岛官网，再访问上述链接。未登录状态下会返回错误。
+
+#### 方式二：手机 App 获取
+
 1. 手机打开森空岛 App → 我的 → 设置
 2. 找到「鹰角通行证」相关页面，复制 Token
 
