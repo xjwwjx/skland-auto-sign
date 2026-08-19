@@ -217,8 +217,21 @@ def signed_request(cred, sign_token, url, method="POST", body=None,
 # ═══════════════════════════════════════════════════════════════
 
 def get_cred_and_sign_token(token):
-    """OAuth2 两步认证: token → grant code → cred + sign_token"""
-    auth_h = {"Content-Type": "application/json", "User-Agent": UA}
+    """OAuth2 两步认证: token → grant code → cred + sign_token
+
+    2024-09 起 generate_cred_by_code 接口新增数美设备指纹(dId)校验，
+    必须在请求头带上 platform / timestamp / dId / vName，否则返回
+    code=10001「设备信息无效」。这里复用 get_did() 生成 dId（与签到
+    请求同一套格式，已被服务器接受）。
+    """
+    auth_h = {
+        "Content-Type": "application/json",
+        "User-Agent": UA,
+        "platform": "3",
+        "timestamp": now_ts(),
+        "dId": get_did(),
+        "vName": "1.0.0",
+    }
 
     # Step 1: 获取授权码
     r = requests.post(
@@ -233,14 +246,18 @@ def get_cred_and_sign_token(token):
     if not code:
         return None, None
 
-    # Step 2: 授权码换取 cred
+    # Step 2: 授权码换取 cred（需携带 dId 设备指纹，否则「设备信息无效」）
     r = requests.post(
         f"{SK_WEB}/user/auth/generate_cred_by_code",
         json={"kind": 1, "code": code},
         headers=auth_h, timeout=TIMEOUT,
     ).json()
     if r.get("code") != 0:
-        log(f"  获取 cred 失败: {r.get('message', '未知')}")
+        msg = r.get("message", "未知")
+        if r.get("code") == 10001:
+            log(f"  获取 cred 失败: {msg}（请先 git pull 更新脚本，需携带 dId 设备指纹）")
+        else:
+            log(f"  获取 cred 失败: {msg}")
         return None, None
 
     d = r.get("data", {})
