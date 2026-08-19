@@ -60,7 +60,41 @@
 
 多账号就写多行。
 
-### 3. 测试运行
+### 3. Token 过期/更新（一键替换）
+
+Token 有效期约 30 天，过期后脚本会提示"token 可能过期"并跳过。**注意：过期的是 Token，不是 cred** —— cred 由脚本用 Token 自动兑换，无需手动获取。
+
+#### 方式一：使用 `set_token.sh` 助手脚本（推荐）
+
+```bash
+# 先更新仓库获取脚本（首次）
+cd ~/skland-auto-sign && git pull
+
+# 在浏览器复制好新 Token 后，运行：
+bash set_token.sh
+```
+
+脚本会自动从**剪贴板**读取 Token（需 Termux:API），保留注释行，只替换 Token。也可直接传参：
+
+```bash
+bash set_token.sh 你的新Token值
+```
+
+#### 方式二：一行命令直接替换
+
+从剪贴板读取（需 Termux:API）：
+
+```bash
+F=~/skland-auto-sign/creds.txt; TOK=$(termux-clipboard-get | tr -d '[:space:]'); [ -z "$TOK" ] && echo "剪贴板为空" || { grep '^#' "$F" > /tmp/c.txt 2>/dev/null; echo "$TOK" >> /tmp/c.txt; mv /tmp/c.txt "$F"; echo "✅ 已更新: ${TOK:0:8}****"; }
+```
+
+未装 Termux:API 时，手动替换占位符 `把新Token粘到这里`：
+
+```bash
+F=~/skland-auto-sign/creds.txt; TOK="把新Token粘到这里"; grep '^#' "$F" > /tmp/c.txt 2>/dev/null; echo "$TOK" >> /tmp/c.txt; mv /tmp/c.txt "$F"; echo "✅ 已更新"
+```
+
+### 4. 测试运行
 
 ```bash
 python skland_sign.py
@@ -393,7 +427,7 @@ requests.post(url, json=body, headers=headers)
 ## 常见问题
 
 **Q: Token 过期了怎么办？**
-A: 重新获取并更新 `creds.txt` 即可。
+A: 重新获取 Token 并更新 `creds.txt` 即可。注意过期的是 **Token** 不是 cred（cred 由脚本自动兑换）。一键更新：在浏览器复制新 Token 后运行 `bash set_token.sh`（自动读剪贴板），或参考上文「Token 过期/更新」章节的一行命令。
 
 **Q: 终末地签到返回 code=10001？**
 A: code=10001 表示"今日已签到"，属于正常响应。如果确认今天还没签到过，检查 `sk-game-role` header 是否正确。
