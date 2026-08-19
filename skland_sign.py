@@ -21,6 +21,22 @@ import base64
 import platform
 from urllib.parse import urlparse
 from datetime import datetime
+import gzip
+
+# 数美(ShuMei)设备指纹所需依赖（generate_cred_by_code 接口校验用）
+try:
+    import warnings
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import padding
+    from cryptography.hazmat.primitives.ciphers.algorithms import AES
+    from cryptography.hazmat.decrepit.ciphers.algorithms import TripleDES
+    from cryptography.hazmat.primitives.ciphers.base import Cipher
+    from cryptography.hazmat.primitives.ciphers.modes import CBC, ECB
+    from cryptography.utils import CryptographyDeprecationWarning
+    warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
+    _SM_OK = True
+except ImportError:
+    _SM_OK = False
 
 # 平台检测
 IS_WINDOWS = os.name == "nt"
@@ -44,7 +60,7 @@ UA = "Skland/1.5.1 (com.hypergryph.skland; build:100501001; Android 34; ) Okhttp
 # 不同游戏的签名参数（dId=None 表示使用随机值）
 SIGN_PROFILES = {
     "default":  {"platform": "1", "vName": "1.5.1", "dId": None},   # 明日方舟
-    "endfield": {"platform": "3", "vName": "1.0.0", "dId": ""},     # 终末地
+    "endfield": {"platform": "3", "vName": "1.0.0", "dId": None},   # 终末地
 }
 
 # 登岛检票 gameId 映射
@@ -84,12 +100,148 @@ def now_ts():
 # ═══════════════════════════════════════════════════════════════
 
 def get_did():
-    """生成设备标识 dId（base64 编码的随机 UUID）"""
+    """返回设备指纹 dId（数美真实指纹，进程内缓存）"""
     global _CACHED_DID
     if _CACHED_DID is None:
-        raw = str(uuid.uuid4()).replace("-", "")[:32]
-        _CACHED_DID = base64.b64encode(raw.encode()).decode().rstrip("=")
+        _CACHED_DID = gen_sm_did()
     return _CACHED_DID
+
+
+# ═══════════════════════════════════════════════════════════════
+#  数美(ShuMei)设备指纹 — 用于 generate_cred_by_code 校验
+#  鹰角自 2024-09 起对该接口启用数美 WAF，必须携带真实 dId 设备指纹，
+#  否则返回 code=10001「设备信息无效」。下方为纯 Python 逆向实现，
+#  每次运行实时向数美接口申请一个真实 dId（无需浏览器）。
+#  参考: https://github.com/nuthx/auto-sign (SecuritySm.py)
+# ═══════════════════════════════════════════════════════════════
+
+SM_CONFIG = {
+    "organization": "UWXspnCCJN4sfYlNfqps",
+    "appId": "default",
+    "publicKey": "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCmxMNr7n8ZeT0tE1R9j/mPixoinPkeM+k4VGIn/s0k7N5rJAfnZ0eMER+QhwFvshzo0LNmeUkpR8uIlU/GEVr8mN28sKmwd2gpygqj0ePnBmOW4v0ZVwbSYK+izkhVFk2V/doLoMbWy6b+UnA8mkjvg0iYWRByfRsK2gdl7llqCwIDAQAB",
+    "protocol": "https", "apiHost": "fp-it.portal101.cn",
+}
+DEVICE_URL = "https://fp-it.portal101.cn/deviceprofile/v4"
+_SM_PK = None
+if _SM_OK:
+    try:
+        _SM_PK = serialization.load_der_public_key(base64.b64decode(SM_CONFIG["publicKey"]))
+    except Exception:
+        _SM_PK = None
+
+_SM_DES_RULE = {
+    "appId": {"cipher": "DES", "is_encrypt": 1, "key": "uy7mzc4h", "obfuscated_name": "xx"},
+    "box": {"is_encrypt": 0, "obfuscated_name": "jf"},
+    "canvas": {"cipher": "DES", "is_encrypt": 1, "key": "snrn887t", "obfuscated_name": "yk"},
+    "clientSize": {"cipher": "DES", "is_encrypt": 1, "key": "cpmjjgsu", "obfuscated_name": "zx"},
+    "organization": {"cipher": "DES", "is_encrypt": 1, "key": "78moqjfc", "obfuscated_name": "dp"},
+    "os": {"cipher": "DES", "is_encrypt": 1, "key": "je6vk6t4", "obfuscated_name": "pj"},
+    "platform": {"cipher": "DES", "is_encrypt": 1, "key": "pakxhcd2", "obfuscated_name": "gm"},
+    "plugins": {"cipher": "DES", "is_encrypt": 1, "key": "v51m3pzl", "obfuscated_name": "kq"},
+    "pmf": {"cipher": "DES", "is_encrypt": 1, "key": "2mdeslu3", "obfuscated_name": "vw"},
+    "protocol": {"is_encrypt": 0, "obfuscated_name": "protocol"},
+    "referer": {"cipher": "DES", "is_encrypt": 1, "key": "y7bmrjlc", "obfuscated_name": "ab"},
+    "res": {"cipher": "DES", "is_encrypt": 1, "key": "whxqm2a7", "obfuscated_name": "hf"},
+    "rtype": {"cipher": "DES", "is_encrypt": 1, "key": "x8o2h2bl", "obfuscated_name": "lo"},
+    "sdkver": {"cipher": "DES", "is_encrypt": 1, "key": "9q3dcxp2", "obfuscated_name": "sc"},
+    "status": {"cipher": "DES", "is_encrypt": 1, "key": "2jbrxxw4", "obfuscated_name": "an"},
+    "subVersion": {"cipher": "DES", "is_encrypt": 1, "key": "eo3i2puh", "obfuscated_name": "ns"},
+    "svm": {"cipher": "DES", "is_encrypt": 1, "key": "fzj3kaeh", "obfuscated_name": "qr"},
+    "time": {"cipher": "DES", "is_encrypt": 1, "key": "q2t3odsk", "obfuscated_name": "nb"},
+    "timezone": {"cipher": "DES", "is_encrypt": 1, "key": "1uv05lj5", "obfuscated_name": "as"},
+    "tn": {"cipher": "DES", "is_encrypt": 1, "key": "x9nzj1bp", "obfuscated_name": "py"},
+    "trees": {"cipher": "DES", "is_encrypt": 1, "key": "acfs0xo4", "obfuscated_name": "pi"},
+    "ua": {"cipher": "DES", "is_encrypt": 1, "key": "k92crp1t", "obfuscated_name": "bj"},
+    "url": {"cipher": "DES", "is_encrypt": 1, "key": "y95hjkoo", "obfuscated_name": "cf"},
+    "version": {"is_encrypt": 0, "obfuscated_name": "version"},
+    "vpw": {"cipher": "DES", "is_encrypt": 1, "key": "r9924ab5", "obfuscated_name": "ca"},
+}
+
+_SM_BROWSER_ENV = {
+    "plugins": "MicrosoftEdgePDFPluginPortableDocumentFormatinternal-pdf-viewer1,MicrosoftEdgePDFViewermhjfbmdgcfjbbpaeojofohoefgiehjai1",
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0",
+    "canvas": "259ffe69", "timezone": -480, "platform": "Win32",
+    "url": "https://www.skland.com/", "referer": "",
+    "res": "1920_1080_24_1.25", "clientSize": "0_0_1080_1920_1920_1080_1920_1080", "status": "0011",
+}
+
+
+def _sm_des(o):
+    result = {}
+    for i in o.keys():
+        if i in _SM_DES_RULE:
+            rule = _SM_DES_RULE[i]
+            res = o[i]
+            if rule["is_encrypt"] == 1:
+                c = Cipher(TripleDES(rule["key"].encode()), ECB())
+                data = str(res).encode()
+                data += b"\x00" * 8
+                res = base64.b64encode(c.encryptor().update(data)).decode()
+            result[rule["obfuscated_name"]] = res
+        else:
+            result[i] = o[i]
+    return result
+
+
+def _sm_aes(v: bytes, k: bytes):
+    iv = "0102030405060708"
+    c = Cipher(AES(k), CBC(iv.encode()))
+    v += b"\x00"
+    while len(v) % 16 != 0:
+        v += b"\x00"
+    return c.encryptor().update(v).hex()
+
+
+def _sm_gzip(o):
+    return base64.b64encode(gzip.compress(json.dumps(o, ensure_ascii=False).encode(), 2, mtime=0))
+
+
+def _sm_get_tn(o):
+    result_list = []
+    for i in sorted(o.keys()):
+        v = o[i]
+        if isinstance(v, (int, float)):
+            v = str(v * 10000)
+        elif isinstance(v, dict):
+            v = _sm_get_tn(v)
+        result_list.append(v)
+    return "".join(result_list)
+
+
+def _sm_get_smid():
+    t = time.localtime()
+    _t = "{}{:0>2d}{:0>2d}{:0>2d}{:0>2d}{:0>2d}".format(
+        t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec)
+    uid = str(uuid.uuid4())
+    v = _t + hashlib.md5(uid.encode()).hexdigest() + "00"
+    smsk = hashlib.md5(("smsk_web_" + v).encode()).hexdigest()[0:14]
+    return v + smsk + "0"
+
+
+def gen_sm_did():
+    """调用数美接口生成真实设备指纹 dId（返回 'B' + deviceId）"""
+    if not _SM_OK or _SM_PK is None:
+        raise RuntimeError("缺少 cryptography 库，无法生成设备指纹")
+    uid = str(uuid.uuid4()).encode()
+    priId = hashlib.md5(uid).hexdigest()[0:16]
+    ep = base64.b64encode(_SM_PK.encrypt(uid, padding.PKCS1v15())).decode()
+    browser = _SM_BROWSER_ENV.copy()
+    ct = int(time.time() * 1000)
+    browser.update({"vpw": str(uuid.uuid4()), "svm": ct, "trees": str(uuid.uuid4()), "pmf": ct})
+    des_target = {
+        **browser, "protocol": 102, "organization": SM_CONFIG["organization"],
+        "appId": SM_CONFIG["appId"], "os": "web", "version": "3.0.0", "sdkver": "3.0.0",
+        "box": "", "rtype": "all", "smid": _sm_get_smid(), "subVersion": "1.0.0", "time": 0,
+    }
+    des_target["tn"] = hashlib.md5(_sm_get_tn(des_target).encode()).hexdigest()
+    des_result = _sm_aes(_sm_gzip(_sm_des(des_target)), priId.encode())
+    resp = requests.post(DEVICE_URL, json={
+        "appId": "default", "compress": 2, "data": des_result, "encode": 5,
+        "ep": ep, "organization": SM_CONFIG["organization"], "os": "web",
+    }, timeout=TIMEOUT).json()
+    if resp.get("code") != 1100:
+        raise RuntimeError(f"数美接口返回异常: {resp.get('message', resp)}")
+    return "B" + resp["detail"]["deviceId"]
 
 
 def log(msg, to_file=False):
@@ -178,6 +330,7 @@ def signed_request(cred, sign_token, url, method="POST", body=None,
         "User-Agent": UA,
         "Accept-Encoding": "gzip",
         "Connection": "close",
+        "X-Requested-With": "com.hypergryph.skland",
         "platform": ca["platform"],
         "timestamp": ca["timestamp"],
         "dId": ca["dId"],
@@ -227,6 +380,7 @@ def get_cred_and_sign_token(token):
     auth_h = {
         "Content-Type": "application/json",
         "User-Agent": UA,
+        "X-Requested-With": "com.hypergryph.skland",
         "platform": "3",
         "timestamp": now_ts(),
         "dId": get_did(),
@@ -384,6 +538,14 @@ def main():
 
     log(f"共 {len(tokens)} 个账号，开始签到...\n", to_file)
     sync_time_offset()
+
+    # 预生成数美设备指纹 dId（generate_cred_by_code 校验必需；失败则提前退出）
+    try:
+        get_did()
+    except Exception as e:
+        log(f"生成设备指纹(dId)失败: {e}", to_file)
+        log("请检查网络能否访问 fp-it.portal101.cn，并确认已安装 cryptography 库", to_file)
+        sys.exit(1)
 
     for idx, token in enumerate(tokens, 1):
         mask = token[:8] + "****" + token[-4:] if len(token) > 12 else "****"

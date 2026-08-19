@@ -429,6 +429,9 @@ requests.post(url, json=body, headers=headers)
 **Q: Token 过期了怎么办？**
 A: 重新获取 Token 并更新 `creds.txt` 即可。注意过期的是 **Token** 不是 cred（cred 由脚本自动兑换）。一键更新：在浏览器复制新 Token 后运行 `bash set_token.sh`（自动读剪贴板），或参考上文「Token 过期/更新」章节的一行命令。
 
+**Q: 提示「设备信息无效 / 获取 cred 失败」怎么办？**
+A: 这是鹰角自 2024-09 起对「换 cred」接口（`generate_cred_by_code`）启用的数美(ShuMei)设备指纹校验。新版脚本已内置真实 dId 生成逻辑（每次运行实时向数美接口申请，无需浏览器），依赖 `cryptography` 库（安装脚本已自动安装）。若仍报此错，请确认：① 已 `git pull` 更新到含 dId 修复的版本（commit ≥ `8bd49df`）；② 手机能联网访问 `fp-it.portal101.cn`（生成 dId 需调用该接口，被墙或断网会失败）；③ 已安装依赖 `pip install -r requirements.txt`。手机端可重新运行 `bash setup_android.sh` 安装依赖。
+
 **Q: 终末地签到返回 code=10001？**
 A: code=10001 表示"今日已签到"，属于正常响应。如果确认今天还没签到过，检查 `sk-game-role` header 是否正确。
 

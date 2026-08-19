@@ -59,7 +59,7 @@ pkg update -y
 pkg install -y python python-pip cronie termux-api
 
 # 安装 Python 依赖
-pip install requests -q
+pip install -r requirements.txt -q
 
 info "依赖安装完成"
 
